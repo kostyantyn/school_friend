@@ -1,16 +1,60 @@
 require 'net/http'
 require 'digest'
+require 'json'
+
+def keys_to_symbols! (_hash)
+   _hash.keys.each do |key|
+       _hash[(key.to_sym rescue key) || key] = _hash.delete(key)
+   end
+
+   return _hash
+end
 
 module SchoolFriend
   class Session
     class RequireSessionScopeError < ArgumentError
     end
 
+    class OauthCodeAuthenticationFailedError < StandardError  
+    end  
+
     attr_reader :options, :session_scope
 
     def initialize(options = {})
-      @options       = options
-      @session_scope = options[:session_key] && options[:session_secret_key]
+      @options       = keys_to_symbols!(options)
+      @session_scope = (options[:session_key] && options[:session_secret_key]) || \
+                           options[:oauth_code] || \
+                           (options[:access_token] && options[:refresh_token])
+
+      # only has oauth_code, get access_token
+      if options[:oauth_code]
+          uri = URI.parse(api_server + "/oauth/token.do")
+          http = Net::HTTP.new(uri.host, 80)
+
+          data = URI.encode_www_form({"code" => options[:oauth_code], "redirect_uri" => "http://127.0.0.1:2000",\
+                            "client_id" => SchoolFriend.application_id, "client_secret" => SchoolFriend.secret_key,
+                            "grant_type" => 'authorization_code'})
+          headers = {
+            'Content-Type' => 'application/x-www-form-urlencoded'
+          }
+
+          response, data = http.post(uri.path, data, headers)
+
+          if response.is_a?(Net::HTTPSuccess)
+              response = JSON(response.body)
+
+              if response.has_key?("error")
+                  raise OauthCodeAuthenticationFailedError, "failed to use oauth_code for authentication: #{response["error"]}: #{response["error_description"]}"
+              end
+
+              options[:access_token] = response["access_token"]
+              options[:refresh_token] = response["refresh_token"]
+          else
+              raise OauthCodeAuthenticationFailedError, "failed to use oauth_code for authentication - Request Failed"
+          end
+
+          options.delete(:oauth_code)
+      end
     end
 
     # Returns true if API call is performed in session scope
@@ -36,7 +80,11 @@ module SchoolFriend
     #
     # @return [String]
     def signature
-      @signature ||= session_scope? ? options[:session_secret_key] : SchoolFriend.secret_key
+      unless session_scope?
+        return SchoolFriend.secret_key
+      end
+
+      options[:access_token] || options[:session_secret_key]
     end
 
     # Returns API server
@@ -53,7 +101,13 @@ module SchoolFriend
     def sign(params = {})
       params = additional_params.merge(params)
       digest = params.sort_by(&:first).map{ |key, value| "#{key}=#{value}" }.join
-      params[:sig] = Digest::MD5.hexdigest("#{digest}#{signature}")
+
+      if options[:access_token]
+          params[:sig] = Digest::MD5.hexdigest("#{digest}" + Digest::MD5.hexdigest(options[:access_token] + SchoolFriend.secret_key))
+          params[:access_token] = options[:access_token]
+      else
+          params[:sig] = Digest::MD5.hexdigest("#{digest}#{signature}")
+      end
       params
     end
 
@@ -63,7 +117,11 @@ module SchoolFriend
     # @return [Hash]
     def additional_params
       @additional_params ||= if session_scope?
-        {application_key: application_key, session_key: options[:session_key]}
+        if options[:access_token]
+          {application_key: application_key}
+        else
+          {application_key: application_key, session_key: options[:session_key]}
+        end
       else
         {application_key: application_key}
       end
@@ -100,6 +158,9 @@ module SchoolFriend
       uri = URI(api_server)
       uri.path  = '/api/' + method.sub('.', '/')
       uri.query = URI.encode_www_form(sign(params))
+
+      SchoolFriend.logger.debug "API Request: #{uri}"
+
       uri
     end
 
