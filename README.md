@@ -35,6 +35,13 @@ Or install it yourself as:
     # 2. By providing an access token and a refresh token you already have
     session = SchoolFriend.session(:access_token => access_token, :refresh_token => refresh_token)
 
+    # 3. Refreshing the access token:
+    # According to Odnoklassniki's API doc access token is valid for 30 minutes
+    # You can extend this time by refreshing the access token this will give
+    # you a new token that will be valid for 30 days
+    # http://dev.odnoklassniki.ru/wiki/pages/viewpage.action?pageId=12878032
+    session.refresh_access_token
+
     # Alternative - non oauth: Acquire a session with user's user_name and password (not recommanded)
     # Odnoklassniki's sandbox has no oauth2 support so you have to use this method there
     session = SchoolFriend.session(SchoolFriend.auth.login(:user_name => username, :password => password))

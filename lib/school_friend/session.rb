@@ -20,6 +20,18 @@ module SchoolFriend
 
     attr_reader :options, :session_scope
 
+    def _post_request(url, params)
+        uri = URI.parse(url)
+        http = Net::HTTP.new(uri.host, 80)
+        data = URI.encode_www_form(params)
+
+        headers = {
+          'Content-Type' => 'application/x-www-form-urlencoded'
+        }
+
+        http.post(uri.path, data, headers)
+    end
+
     def initialize(options = {})
       @options       = keys_to_symbols!(options)
       @session_scope = (options[:session_key] && options[:session_secret_key]) || \
@@ -28,17 +40,11 @@ module SchoolFriend
 
       # only has oauth_code, get access_token
       if options[:oauth_code]
-          uri = URI.parse(api_server + "/oauth/token.do")
-          http = Net::HTTP.new(uri.host, 80)
-
-          data = URI.encode_www_form({"code" => options[:oauth_code], "redirect_uri" => "http://127.0.0.1:2000",\
-                            "client_id" => SchoolFriend.application_id, "client_secret" => SchoolFriend.secret_key,
-                            "grant_type" => 'authorization_code'})
-          headers = {
-            'Content-Type' => 'application/x-www-form-urlencoded'
-          }
-
-          response, data = http.post(uri.path, data, headers)
+          response, data = \
+              _post_request(api_server + "/oauth/token.do",
+                              {"code" => options[:oauth_code], "redirect_uri" => "http://127.0.0.1:2000",
+                               "client_id" => SchoolFriend.application_id, "client_secret" => SchoolFriend.secret_key,
+                               "grant_type" => 'authorization_code'})
 
           if response.is_a?(Net::HTTPSuccess)
               response = JSON(response.body)
@@ -49,12 +55,47 @@ module SchoolFriend
 
               options[:access_token] = response["access_token"]
               options[:refresh_token] = response["refresh_token"]
+
+              SchoolFriend.logger.debug "Tokens received: #{options[:access_token]} #{options[:refresh_token]}"
           else
               raise OauthCodeAuthenticationFailedError, "failed to use oauth_code for authentication - Request Failed"
           end
 
           options.delete(:oauth_code)
       end
+    end
+
+    def refresh_access_token
+        # true on success false otherwise
+        if oauth2_session?
+            response, data = \
+                _post_request(api_server + "/oauth/token.do",
+                             {"refresh_token" => options[:refresh_token],\
+                              "client_id" => SchoolFriend.application_id, "client_secret" => SchoolFriend.secret_key,
+                              "grant_type" => 'refresh_token'})
+
+            if response.is_a?(Net::HTTPSuccess)
+                response = JSON(response.body)
+
+                if response.has_key?("error")
+                    SchoolFriend.logger.warn "#{__method__}: failed to refresh access token - #{response["error"]}"
+
+                    return false
+                end
+
+                options[:access_token] = response["access_token"]
+
+                SchoolFriend.logger.debug "#{__method__}: Token received: #{options[:access_token]}"
+                
+                return true
+            else
+                SchoolFriend.logger.warn "#{__method__}: Failed to refresh access token - request Failed"
+
+                return false
+            end
+        else
+            return false
+        end
     end
 
     # Returns true if API call is performed in session scope
@@ -67,6 +108,10 @@ module SchoolFriend
     # @return [TrueClass, FalseClass]
     def application_scope?
       not session_scope?
+    end
+
+    def oauth2_session?
+      options[:access_token] && options[:refresh_token]
     end
 
     # Returns application key
@@ -102,7 +147,7 @@ module SchoolFriend
       params = additional_params.merge(params)
       digest = params.sort_by(&:first).map{ |key, value| "#{key}=#{value}" }.join
 
-      if options[:access_token]
+      if oauth2_session?
           params[:sig] = Digest::MD5.hexdigest("#{digest}" + Digest::MD5.hexdigest(options[:access_token] + SchoolFriend.secret_key))
           params[:access_token] = options[:access_token]
       else
@@ -117,7 +162,7 @@ module SchoolFriend
     # @return [Hash]
     def additional_params
       @additional_params ||= if session_scope?
-        if options[:access_token]
+        if oauth2_session?
           {application_key: application_key}
         else
           {application_key: application_key, session_key: options[:session_key]}
