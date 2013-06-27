@@ -1,0 +1,10 @@
+# Your app settings
+oauth_server: https://www.odnoklassniki.ru
+api_server: http://api.odnoklassniki.ru
+application_id: 1
+application_key: C
+secret_key: C
+permission: SET STATUS;VALUABLE ACCESS;PHOTO CONTENT
+
+# Options related to the TCPServer we open to receive the oauth code
+listener_port: 2000
