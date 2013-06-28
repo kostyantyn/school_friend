@@ -17,38 +17,38 @@ Or install it yourself as:
     $ gem install school_friend
 
 ## Usage
+```ruby
+# Init the SchoolFriend Module
+SchoolFriend.application_id = ''
+SchoolFriend.application_key = ''
+SchoolFriend.secret_key = ''
+SchoolFriend.api_server = 'http://api.odnoklassniki.ru'
 
-    # Init the SchoolFriend Module
-    SchoolFriend.application_id = ''
-    SchoolFriend.application_key = ''
-    SchoolFriend.secret_key = ''
-    SchoolFriend.api_server = 'http://api.odnoklassniki.ru'
+# Example call to a method that doesn't require a session or oauth2 access token  
+puts SchoolFriend.users.is_app_user(:uid => "425634635") # Note that method name is underscored
 
-    # Example call to a method that doesn't require a session or oauth2 access token  
-    puts SchoolFriend.users.is_app_user(:uid => "425634635") # Note that method name is underscored
+# Init an Oauth2 Session
+# You can init an oauth session in two ways:
+# 1. By providing the oauth code and let this gem to acquire the access token for you
+session = SchoolFriend.session(:oauth_code => code)
 
-    # Init an Oauth2 Session
-    # You can init an oauth session in two ways:
-    # 1. By providing the oauth code and let this gem to acquire the access token for you
-    session = SchoolFriend.session(:oauth_code => code)
+# 2. By providing an access token and a refresh token you already have
+session = SchoolFriend.session(:access_token => access_token, :refresh_token => refresh_token)
 
-    # 2. By providing an access token and a refresh token you already have
-    session = SchoolFriend.session(:access_token => access_token, :refresh_token => refresh_token)
+# 3. Refreshing the access token:
+# According to Odnoklassniki's API doc access token is valid for 30 minutes
+# You can extend this time by refreshing the access token this will give
+# you a new token that will be valid for 30 days
+# http://dev.odnoklassniki.ru/wiki/pages/viewpage.action?pageId=12878032
+session.refresh_access_token
 
-    # 3. Refreshing the access token:
-    # According to Odnoklassniki's API doc access token is valid for 30 minutes
-    # You can extend this time by refreshing the access token this will give
-    # you a new token that will be valid for 30 days
-    # http://dev.odnoklassniki.ru/wiki/pages/viewpage.action?pageId=12878032
-    session.refresh_access_token
+# Alternative - non oauth: Acquire a session with user's user_name and password (not recommanded)
+# Odnoklassniki's sandbox has no oauth2 support so you have to use this method there
+session = SchoolFriend.session(SchoolFriend.auth.login(:user_name => username, :password => password))
 
-    # Alternative - non oauth: Acquire a session with user's user_name and password (not recommanded)
-    # Odnoklassniki's sandbox has no oauth2 support so you have to use this method there
-    session = SchoolFriend.session(SchoolFriend.auth.login(:user_name => username, :password => password))
-
-    # Once you have a session you can perform actions with it:
-    puts session.users.get_current_user
-
+# Once you have a session you can perform actions with it:
+puts session.users.get_current_user
+```
 ## Contributing
 
 1. Fork it
